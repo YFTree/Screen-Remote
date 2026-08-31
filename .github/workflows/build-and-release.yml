@@ -8,11 +8,12 @@ permissions:
 
 env:
   GH_TOKEN: ${{ secrets.TOKEN_GITHUB }}
-  SOURCE_REPOSITORY: XRSec/Screen-Remote-src
+  DEFAULT_OWNER: XRSec
+  SOURCE_NAME: Screen-Remote-src
+  DADB_NAME: dadb
+  RELEASE_NAME: Screen-Remote
   SOURCE_REF: main
-  DADB_REPOSITORY: XRSec/dadb
   DADB_REF: main
-  RELEASE_REPOSITORY: XRSec/Screen-Remote
 
 concurrency:
   group: screen-remote-release
@@ -33,6 +34,36 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve target repositories
+        id: resolve-repos
+        shell: bash
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          resolve_repo() {
+            local repo_name="$1"
+            local actor_repo="${ACTOR}/${repo_name}"
+            local default_repo="${DEFAULT_OWNER}/${repo_name}"
+
+            if gh repo view "$actor_repo" >/dev/null 2>&1; then
+              echo "$actor_repo"
+            else
+              echo "$default_repo"
+            fi
+          }
+
+          source_repo="$(resolve_repo "$SOURCE_NAME")"
+          dadb_repo="$(resolve_repo "$DADB_NAME")"
+          release_repo="$(resolve_repo "$RELEASE_NAME")"
+
+          {
+            echo "source_repository=$source_repo"
+            echo "dadb_repository=$dadb_repo"
+            echo "release_repository=$release_repo"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout release metadata
         uses: actions/checkout@v7.0.1
         with:
@@ -44,7 +75,7 @@ jobs:
       - name: Checkout application source
         uses: actions/checkout@v7.0.1
         with:
-          repository: ${{ env.SOURCE_REPOSITORY }}
+          repository: ${{ steps.resolve-repos.outputs.source_repository }}
           ref: ${{ env.SOURCE_REF }}
           token: ${{ env.GH_TOKEN }}
           path: workspace/Screen-Remote
@@ -54,7 +85,7 @@ jobs:
       - name: Checkout dadb dependency
         uses: actions/checkout@v7.0.1
         with:
-          repository: ${{ env.DADB_REPOSITORY }}
+          repository: ${{ steps.resolve-repos.outputs.dadb_repository }}
           ref: ${{ env.DADB_REF }}
           token: ${{ env.GH_TOKEN }}
           path: workspace/external/dadb
@@ -130,6 +161,7 @@ jobs:
       - name: Publish GitHub Release
         shell: bash
         env:
+          RELEASE_REPOSITORY: ${{ steps.resolve-repos.outputs.release_repository }}
           RELEASE_TAG: ${{ steps.build.outputs.tag }}
           RELEASE_NOTES_FILE: ${{ github.workspace }}/workspace/docs/UPDATES.md
         run: |
@@ -165,4 +197,3 @@ jobs:
           name: release-apks-${{ steps.build.outputs.version_name || github.run_number }}
           path: release-assets/*.apk
           if-no-files-found: warn
-          retention-days: 14
